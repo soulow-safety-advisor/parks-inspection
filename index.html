@@ -147,8 +147,14 @@ const csvc=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
 function csv(x){const r=[['District','Site','Area','Date','Section','ID','Item','Answer','Notes','Photo codes','Status','Date fixed']];
   D.forEach(s=>s.ids.forEach(id=>{const a=x.answers[id];if(a&&a.v)r.push([x.district,x.site,x.area,x.date,s.L+'. '+s.title,id,IT[id].t||a.label||'',{Y:'Yes',N:'No',NA:'N/A'}[a.v],a.note||'',(a.photos||[]).map(p=>p.code).join('; '),a.v==='N'?(a.st||'open'):'',a.fd||''])}));
   return'\ufeff'+r.map(l=>l.map(csvc).join(',')).join('\r\n')}
-function report(x){const f=findings(x),n=Object.values(x.answers);
-  return'<!DOCTYPE html><meta charset="utf-8"><title>Findings</title><style>body{font:14px Arial;margin:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:5px;vertical-align:top;text-align:left}th{background:#e7ecf4}</style><h2>Safety Inspection Findings</h2><p><b>'+esc([x.district,x.site,x.area].join(' / '))+'</b><br>Date: '+esc(x.date)+'<br>Answered: '+n.filter(a=>a.v).length+'. Yes: '+n.filter(a=>a.v==='Y').length+'. No: '+f.length+'. N/A: '+n.filter(a=>a.v==='NA').length+'.</p><table><tr><th>ID</th><th>Item</th><th>Notes</th><th>Photos</th><th>Status</th></tr>'+(f.map(i=>'<tr><td>'+i.id+'</td><td>'+esc(i.q)+'</td><td>'+esc(i.note)+'</td><td>'+esc(i.photos.join(', '))+'</td><td>'+(i.st==='fixed'?'Fixed '+esc(i.fixed):'Open')+'</td></tr>').join('')||'<tr><td colspan="5">No findings.</td></tr>')+'</table>'}
+async function pic(key){const b=await get('photos',key);if(!b)return'';
+  try{const bm=await createImageBitmap(b),sc=Math.min(1,800/Math.max(bm.width,bm.height)),c=document.createElement('canvas');c.width=Math.round(bm.width*sc);c.height=Math.round(bm.height*sc);c.getContext('2d').drawImage(bm,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.7)}
+  catch(e){return await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.onerror=()=>r('');f.readAsDataURL(b)})}}
+async function report(x){const f=findings(x),n=Object.values(x.answers);
+  const rows=[];for(const i of f){const a=x.answers[i.id],ims=[];
+    for(const p of a.photos||[]){const u=await pic(p.key);if(u)ims.push('<figure><img src="'+u+'"><figcaption>'+esc(p.code)+'</figcaption></figure>')}
+    rows.push('<tr><td>'+i.id+'</td><td>'+esc(i.q)+'</td><td>'+esc(i.note)+'</td><td>'+(ims.join('')||'')+'</td><td>'+(i.st==='fixed'?'Fixed '+esc(i.fixed):'Open')+'</td></tr>')}
+  return'<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Findings</title><style>body{font:14px Arial;margin:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:5px;vertical-align:top;text-align:left}th{background:#e7ecf4}tr{page-break-inside:avoid}figure{margin:0 0 8px}img{max-width:320px;width:100%;height:auto;display:block}figcaption{font-size:11px;color:#555;word-break:break-all}</style><h2>Safety Inspection Findings</h2><p><b>'+esc([x.district,x.site,x.area].join(' / '))+'</b><br>Date: '+esc(x.date)+'<br>Answered: '+n.filter(a=>a.v).length+'. Yes: '+n.filter(a=>a.v==='Y').length+'. No: '+f.length+'. N/A: '+n.filter(a=>a.v==='NA').length+'.</p><table><tr><th>ID</th><th>Item</th><th>Notes</th><th>Photos</th><th>Status</th></tr>'+(rows.join('')||'<tr><td colspan="5">No findings.</td></tr>')+'</table>'}
 const T=new Uint32Array(256).map((_,n)=>{let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;return c>>>0});
 const crc=u=>{let c=~0;for(const b of u)c=T[(c^b)&255]^(c>>>8);return(~c)>>>0};
 function zip(fs){const enc=new TextEncoder(),parts=[],cd=[];let off=0;const w2=n=>[n&255,n>>8&255],w4=n=>[n&255,n>>8&255,n>>16&255,n>>>24&255];
@@ -169,10 +175,10 @@ function exportPanel(x){
   const ml=el('a',{href:link(),style:'flex:1'},el('button',{class:'p',style:'width:100%'},'Open email draft'));ta.oninput=()=>ml.href=link();
   c.append(el('div',{class:'fx'},el('b',{},'Export: '+[x.district,x.site,x.area].join(' / ')),el('button',{class:'sm',onclick:()=>m.remove()},'Close')),
     el('p',{class:'mu'},f.length+' items marked No.'),
-    el('div',{class:'btns'},el('button',{class:'p',onclick:async()=>{toast('Building zip...');const fs=[{name:base+'/findings-report.html',data:new TextEncoder().encode(report(x))},{name:base+'/all-answers.csv',data:new TextEncoder().encode(csv(x))}];
+    el('div',{class:'btns'},el('button',{class:'p',onclick:async()=>{toast('Building zip...');const fs=[{name:base+'/findings-report.html',data:new TextEncoder().encode(await report(x))},{name:base+'/all-answers.csv',data:new TextEncoder().encode(csv(x))}];
       for(const a of Object.values(x.answers))for(const p of a.photos||[]){const b=await get('photos',p.key);if(b)fs.push({name:base+'/photos/'+p.code+'.jpg',data:new Uint8Array(await b.arrayBuffer())})}
       await save(base+'.zip',zip(fs))}},'Download everything (zip)')),
-    el('div',{class:'btns'},el('button',{onclick:()=>save(base+'-findings.html',report(x))},'Report (html)'),el('button',{onclick:()=>save(base+'-answers.csv',csv(x))},'Answers (csv)')),
+    el('div',{class:'btns'},el('button',{onclick:async()=>{toast('Building report...');save(base+'-findings.html',await report(x))}},'Report (html)'),el('button',{onclick:()=>save(base+'-answers.csv',csv(x))},'Answers (csv)')),
     el('label',{},'Email to district supervisor'),em,el('label',{},'Message'),ta,
     el('div',{class:'btns'},ml,el('button',{onclick:async()=>{try{await navigator.clipboard.writeText(ta.value);toast('Copied')}catch(e){ta.select();toast('Select and copy the text')}}},'Copy text')),
     el('p',{class:'mu'},'Save the zip, put it on the S: drive, then paste the link where the message says to.'));
